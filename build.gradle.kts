@@ -20,6 +20,7 @@ repositories {
 dependencies {
     implementation("org.telegram:telegrambots-longpolling:9.2.0")
     implementation("org.telegram:telegrambots-client:9.2.0")
+    implementation("com.google.code.gson:gson:2.10.1")
 }
 
 tasks.withType<Jar> {
