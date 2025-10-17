@@ -1,0 +1,11 @@
+version: "3.8"
+
+services:
+  telegram-bot:
+    build: .
+    container_name: telegram-echo-bot
+    restart: always
+    env_file:
+      - .env
+    environment:
+      - BOT_TOKEN=${BOT_TOKEN}
