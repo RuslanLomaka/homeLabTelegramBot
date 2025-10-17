@@ -4,7 +4,11 @@ import org.gradle.api.file.DuplicatesStrategy
 plugins {
     id("java")
 }
-
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(17))
+    }
+}
 group = "org.example"
 version = "1.0"
 
