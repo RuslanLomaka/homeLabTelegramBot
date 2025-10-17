@@ -2,6 +2,7 @@ package org.example;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient;
 import org.telegram.telegrambots.longpolling.TelegramBotsLongPollingApplication;
@@ -13,7 +14,6 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.Keyboard
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
-import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -28,6 +28,8 @@ public class EchoBot {
 
   public static void main(String[] args) throws Exception {
     String botToken = System.getenv("BOT_TOKEN");
+    System.out.println("BOT_TOKEN from env = " + botToken);
+
     OkHttpTelegramClient telegramClient = new OkHttpTelegramClient(botToken);
 
     try (TelegramBotsLongPollingApplication botsApplication = new TelegramBotsLongPollingApplication()) {
@@ -39,19 +41,20 @@ public class EchoBot {
               long chatId = update.getMessage().getChatId();
               String text = update.getMessage().getText().trim();
 
+              // START COMMAND
               if (text.equals("/start")) {
                 sendMenu(chatId, telegramClient, "👋 Welcome! Choose a mode below:");
                 continue;
               }
 
-              // ===== NEW BUTTON =====
+              // 💰 NEW BUTTON — Currency Rates
               if (text.equals("💰 Currency Rates")) {
                 String rates = getMonobankRates();
                 sendMenu(chatId, telegramClient, rates);
                 continue;
               }
 
-              // handle other menu buttons
+              // OTHER BUTTONS
               if (text.equals("🗣 Echo Mode")) {
                 userModes.put(chatId, "ECHO");
                 sendMenu(chatId, telegramClient, "✅ Echo Mode activated.");
@@ -68,6 +71,7 @@ public class EchoBot {
                 continue;
               }
 
+              // MODE BEHAVIOR
               String mode = userModes.getOrDefault(chatId, "ECHO");
 
               if (mode.equals("ECHO")) {
@@ -89,28 +93,32 @@ public class EchoBot {
 
   // ========== MONOBANK API ==========
   private static String getMonobankRates() {
-    String API_URL = "https://api.monobank.ua/bank/currency";
     try {
       HttpClient client = HttpClient.newHttpClient();
-      HttpRequest request = HttpRequest.newBuilder().uri(URI.create(API_URL)).build();
+      HttpRequest request = HttpRequest.newBuilder()
+          .uri(URI.create("https://api.monobank.ua/bank/currency"))
+          .build();
       HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+
+      if (response.statusCode() != 200)
+        return "❌ Monobank API error: " + response.statusCode();
 
       JsonArray array = JsonParser.parseString(response.body()).getAsJsonArray();
       double usdBuy = 0, usdSell = 0, eurBuy = 0, eurSell = 0, cnyBuy = 0, cnySell = 0;
 
       for (JsonElement e : array) {
-        var obj = e.getAsJsonObject();
+        JsonObject obj = e.getAsJsonObject();
         int codeA = obj.get("currencyCodeA").getAsInt();
         int codeB = obj.get("currencyCodeB").getAsInt();
-        if (codeB == 980 && codeA == 840) { // USD→UAH
-          usdBuy = obj.get("rateBuy").getAsDouble();
-          usdSell = obj.get("rateSell").getAsDouble();
-        } else if (codeB == 980 && codeA == 978) { // EUR→UAH
-          eurBuy = obj.get("rateBuy").getAsDouble();
-          eurSell = obj.get("rateSell").getAsDouble();
-        } else if (codeB == 980 && codeA == 156) { // CNY→UAH
-          cnyBuy = obj.get("rateBuy").getAsDouble();
-          cnySell = obj.get("rateSell").getAsDouble();
+        if (codeB != 980) continue;
+
+        double buy = getSafeDouble(obj, "rateBuy");
+        double sell = getSafeDouble(obj, "rateSell");
+
+        switch (codeA) {
+          case 840 -> { usdBuy = buy; usdSell = sell; }
+          case 978 -> { eurBuy = buy; eurSell = sell; }
+          case 156 -> { cnyBuy = buy; cnySell = sell; }
         }
       }
 
@@ -119,12 +127,23 @@ public class EchoBot {
                     💵 USD: %.2f / %.2f ₴
                     💶 EUR: %.2f / %.2f ₴
                     🇨🇳 CNY: %.2f / %.2f ₴
-                    (Source: monobank.ua)
-                    """, usdBuy, usdSell, eurBuy, eurSell, cnyBuy, cnySell);
+                    (via api.monobank.ua)
+                    """,
+          usdBuy, usdSell, eurBuy, eurSell, cnyBuy, cnySell);
+
     } catch (Exception e) {
       e.printStackTrace();
       return "❌ Failed to fetch rates from Monobank.";
     }
+  }
+
+  private static double getSafeDouble(JsonObject obj, String key) {
+    if (obj.has(key) && !obj.get(key).isJsonNull()) {
+      try {
+        return obj.get(key).getAsDouble();
+      } catch (Exception ignored) {}
+    }
+    return 0;
   }
 
   // ========== AGE MODE LOGIC ==========
@@ -203,7 +222,6 @@ public class EchoBot {
         s.minute = minute;
         finishAgeCalculation(chatId, client, s);
         ageSessions.remove(chatId);
-        return;
       }
 
     } catch (Exception e) {
@@ -245,7 +263,7 @@ public class EchoBot {
     row1.add(new KeyboardButton("🔁 Reverse Mode"));
     KeyboardRow row2 = new KeyboardRow();
     row2.add(new KeyboardButton("🕓 Age in Seconds"));
-    row2.add(new KeyboardButton("💰 Currency Rates")); // NEW BUTTON
+    row2.add(new KeyboardButton("💰 Currency Rates"));
     List<KeyboardRow> keyboard = Arrays.asList(row1, row2);
     return new ReplyKeyboardMarkup(keyboard, true, false, false, null, false);
   }
@@ -291,6 +309,7 @@ public class EchoBot {
     try { client.execute(message); } catch (TelegramApiException e) { e.printStackTrace(); }
   }
 
+  // SESSION DATA CLASS
   static class AgeSession {
     Integer year;
     Integer month;
